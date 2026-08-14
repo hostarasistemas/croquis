@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0f1c">
+<title>Croquis · Editor de bocetos</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy-950:#0a0f1c;
+    --navy-900:#0d1526;
+    --navy-800:#121c33;
+    --navy-700:#1a2740;
+    --navy-600:#25355a;
+    --paper:#f6f3ea;
+    --cyan:#5ee0d0;
+    --cyan-dim:#2f8f86;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    height:100%;
+    overscroll-behavior:none;
+  }
+  body{
+    background:var(--navy-950);
+    font-family:'Inter',sans-serif;
+    color:#dfe6f2;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .btn-tool{
+    transition:all .12s ease;
+    border:1px solid transparent;
+    flex-shrink:0;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  .btn-tool:active{background:var(--navy-600);}
+  @media(hover:hover){ .btn-tool:hover{background:var(--navy-700);} }
+  .btn-tool.active{
+    background:var(--navy-600);
+    border-color:var(--cyan);
+    color:var(--cyan);
+  }
+  .paper-shadow{
+    box-shadow: 0 0 0 1px rgba(94,224,208,.15), 0 20px 60px -20px rgba(0,0,0,.7);
+  }
+  input[type=range]{ -webkit-appearance:none; height:3px; background:var(--navy-600); border-radius:2px;}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background:var(--cyan); cursor:pointer; margin-top:-7.5px;
+    box-shadow:0 0 0 3px rgba(94,224,208,.2);
+  }
+  input[type=color]{
+    -webkit-appearance:none; border:none; padding:0; background:none; cursor:pointer;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0;}
+  input[type=color]::-webkit-color-swatch{border-radius:6px; border:1px solid var(--navy-600);}
+  ::selection{background:rgba(94,224,208,.3);}
+  #canvasWrap{ touch-action:none; }
+  #board{ touch-action:none; }
+  .corner-tick{ border-color:var(--cyan-dim); }
+
+  /* --- Scroll horizontal de la toolbar en mobile, sin scrollbar visible --- */
+  #toolbar::-webkit-scrollbar{ display:none; }
+  #toolbar{ scrollbar-width:none; -ms-overflow-style:none; }
+
+  /* Evita que el input de texto dispare zoom automático en iOS */
+  input[type=text]{ font-size:16px; }
+
+  @supports (padding: max(0px)) {
+    .safe-bottom{ padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+    .safe-top{ padding-top: env(safe-area-inset-top); }
+  }
+</style>
+</head>
+<body class="h-full flex flex-col overflow-hidden">
+
+  <!-- Header / título de plano -->
+  <header class="safe-top border-b border-[var(--navy-700)] bg-[var(--navy-900)] shrink-0">
+    <div class="max-w-[1400px] mx-auto px-3 md:px-6 py-2.5 md:py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 md:gap-3 min-w-0">
+        <div class="w-7 h-7 md:w-8 md:h-8 shrink-0 rounded border border-[var(--cyan-dim)] flex items-center justify-center mono text-[var(--cyan)] text-[10px] md:text-xs">CR</div>
+        <div class="min-w-0">
+          <h1 class="text-xs md:text-sm font-semibold tracking-wide truncate">Editor de Croquis</h1>
+          <p class="mono text-[9px] md:text-[10px] tracking-widest uppercase hidden sm:block" style="color:#5c6d8f">plano de referencia</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span id="statusMsg" class="mono text-[11px] text-[#5c6d8f] hidden md:inline">listo</span>
+        <button id="downloadBtn" class="mono text-xs font-semibold bg-[var(--cyan)] text-[var(--navy-950)] px-3 md:px-4 py-2 rounded hover:brightness-110 active:brightness-95 transition flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          <span class="hidden sm:inline">Descargar PNG</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 min-h-0 max-w-[1400px] w-full mx-auto px-2 md:px-6 py-2 md:py-5 flex flex-col md:flex-col gap-2 md:gap-4">
+
+    <!-- Canvas -->
+    <div id="canvasWrap" class="order-1 md:order-2 flex-1 min-h-0 flex items-center justify-center">
+      <div id="paperFrame" class="relative rounded paper-shadow" style="background:var(--paper)">
+        <canvas id="board" class="block rounded cursor-crosshair"></canvas>
+        <!-- corner ticks estilo plano técnico -->
+        <div class="absolute -top-2 -left-2 w-4 h-4 border-l-2 border-t-2 corner-tick"></div>
+        <div class="absolute -top-2 -right-2 w-4 h-4 border-r-2 border-t-2 corner-tick"></div>
+        <div class="absolute -bottom-2 -left-2 w-4 h-4 border-l-2 border-b-2 corner-tick"></div>
+        <div class="absolute -bottom-2 -right-2 w-4 h-4 border-r-2 border-b-2 corner-tick"></div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div id="toolbar" class="order-2 md:order-1 shrink-0 safe-bottom bg-[var(--navy-900)] border border-[var(--navy-700)] rounded-lg p-2 md:p-3 flex md:flex-wrap items-center gap-2 overflow-x-auto flex-nowrap md:overflow-visible">
+
+      <!-- Herramientas -->
+      <div class="flex items-center gap-1 pr-2 md:pr-3 border-r border-[var(--navy-700)] shrink-0">
+        <button data-tool="pen" class="btn-tool active w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Lápiz">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
+        <button data-tool="line" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Línea">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+        </button>
+        <button data-tool="rect" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Rectángulo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="1"/></svg>
+        </button>
+        <button data-tool="circle" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Círculo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg>
+        </button>
+        <button data-tool="arrow" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Flecha">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="20" x2="20" y2="4"/><path d="M9 4h11v11"/></svg>
+        </button>
+        <button data-tool="text" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Texto">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        </button>
+        <button data-tool="eraser" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Borrador">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H8l-6-6a2 2 0 0 1 0-3l9-9a2 2 0 0 1 3 0l6 6a2 2 0 0 1 0 3l-9 9"/></svg>
+        </button>
+      </div>
+
+      <!-- Color y grosor -->
+      <div class="flex items-center gap-2 md:gap-3 pr-2 md:pr-3 border-r border-[var(--navy-700)] shrink-0">
+        <input type="color" id="colorPicker" value="#1a2740" class="w-9 h-9 md:w-8 md:h-8 rounded shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="mono text-[10px] text-[#5c6d8f] hidden sm:inline">grosor</span>
+          <input type="range" id="strokeWidth" min="1" max="16" value="3" class="w-16 md:w-20">
+          <span id="strokeVal" class="mono text-[10px] w-4 text-[#5c6d8f]">3</span>
+        </div>
+      </div>
+
+      <!-- Cuadrícula -->
+      <div class="flex items-center gap-2 pr-2 md:pr-3 border-r border-[var(--navy-700)] shrink-0">
+        <label class="flex items-center gap-1.5 cursor-pointer mono text-[10px] text-[#5c6d8f]">
+          <input type="checkbox" id="gridToggle" checked class="accent-[var(--cyan)] w-4 h-4">
+          <span class="hidden sm:inline">cuadrícula</span>
+        </label>
+      </div>
+
+      <!-- Acciones -->
+      <div class="flex items-center gap-1 md:ml-auto shrink-0">
+        <button id="undoBtn" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Deshacer (Ctrl+Z)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 7"/></svg>
+        </button>
+        <button id="redoBtn" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center" title="Rehacer (Ctrl+Y)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 7"/></svg>
+        </button>
+        <button id="clearBtn" class="btn-tool w-11 h-11 md:w-9 md:h-9 rounded flex items-center justify-center text-[#e0715f]" title="Borrar todo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <p class="mono text-[10px] text-center text-[#3d4a68] hidden md:block">click y arrastrá para dibujar · doble click con texto activo para escribir · Ctrl+Z deshacer</p>
+  </main>
+
+  <!-- Modal de texto -->
+  <div id="textModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 px-4">
+    <div class="bg-[var(--navy-900)] border border-[var(--navy-700)] rounded-lg p-5 w-full max-w-sm">
+      <p class="mono text-xs text-[#5c6d8f] mb-2 uppercase tracking-wider">Agregar texto</p>
+      <input id="textInput" type="text" placeholder="Escribí una etiqueta..." class="w-full bg-[var(--navy-800)] border border-[var(--navy-700)] rounded px-3 py-2.5 outline-none focus:border-[var(--cyan)]">
+      <div class="flex justify-end gap-2 mt-4">
+        <button id="textCancel" class="mono text-xs px-3 py-2.5 rounded text-[#5c6d8f] hover:text-white">cancelar</button>
+        <button id="textConfirm" class="mono text-xs px-3 py-2.5 rounded bg-[var(--cyan)] text-[var(--navy-950)] font-semibold">agregar</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('canvasWrap');
+  const frame = document.getElementById('paperFrame');
+
+  const isMobile = () => window.matchMedia('(max-width: 767px)').matches;
+
+  let CSS_W, CSS_H;
+  let DPR = window.devicePixelRatio || 1;
+
+  let showGrid = true;
+  let tool = 'pen';
+  let color = '#1a2740';
+  let width = 3;
+  let drawing = false;
+  let startX = 0, startY = 0;
+  let snapshot = null;
+  let pendingTextPos = null;
+
+  const history = [];
+  let historyIndex = -1;
+
+  function computeSize(){
+    const rect = wrap.getBoundingClientRect();
+    if(isMobile()){
+      // usa casi todo el espacio disponible del contenedor flex
+      CSS_W = Math.max(260, Math.floor(rect.width - 12));
+      CSS_H = Math.max(260, Math.floor(rect.height - 12));
+    } else {
+      CSS_W = Math.min(900, Math.floor(rect.width - 48));
+      CSS_H = Math.round(CSS_W * 0.65);
+    }
+  }
+
+  function drawGrid(){
+    ctx.save();
+    ctx.fillStyle = '#f6f3ea';
+    ctx.fillRect(0,0,CSS_W,CSS_H);
+    if(showGrid){
+      const step = 24;
+      ctx.strokeStyle = 'rgba(60,80,60,0.14)';
+      ctx.lineWidth = 1;
+      for(let x=0; x<=CSS_W; x+=step){
+        ctx.beginPath(); ctx.moveTo(x+0.5,0); ctx.lineTo(x+0.5,CSS_H); ctx.stroke();
+      }
+      for(let y=0; y<=CSS_H; y+=step){
+        ctx.beginPath(); ctx.moveTo(0,y+0.5); ctx.lineTo(CSS_W,y+0.5); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function applySize(preserve){
+    let old = null;
+    if(preserve && CSS_W && CSS_H){
+      old = document.createElement('canvas');
+      old.width = canvas.width; old.height = canvas.height;
+      old.getContext('2d').drawImage(canvas, 0, 0);
+    }
+    computeSize();
+    DPR = window.devicePixelRatio || 1;
+    canvas.style.width = CSS_W + 'px';
+    canvas.style.height = CSS_H + 'px';
+    canvas.width = CSS_W * DPR;
+    canvas.height = CSS_H * DPR;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.scale(DPR, DPR);
+    if(old){
+      drawGrid();
+      ctx.drawImage(old, 0, 0, old.width, old.height, 0, 0, CSS_W, CSS_H);
+    } else {
+      drawGrid();
+    }
+  }
+
+  function init(){
+    applySize(false);
+    pushHistory();
+  }
+
+  function pushHistory(){
+    history.length = historyIndex + 1;
+    history.push(ctx.getImageData(0,0,canvas.width,canvas.height));
+    if(history.length > 40) history.shift();
+    historyIndex = history.length - 1;
+    updateUndoRedoState();
+  }
+
+  function restoreHistory(idx){
+    if(idx < 0 || idx >= history.length) return;
+    const img = history[idx];
+    if(img.width === canvas.width && img.height === canvas.height){
+      ctx.putImageData(img, 0, 0);
+    }
+    historyIndex = idx;
+    updateUndoRedoState();
+  }
+
+  function updateUndoRedoState(){
+    document.getElementById('undoBtn').style.opacity = historyIndex <= 0 ? 0.35 : 1;
+    document.getElementById('redoBtn').style.opacity = historyIndex >= history.length-1 ? 0.35 : 1;
+  }
+
+  function getPos(e){
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * (CSS_W / rect.width),
+      y: (clientY - rect.top) * (CSS_H / rect.height)
+    };
+  }
+
+  function setStatus(msg){
+    const el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    clearTimeout(setStatus._t);
+    setStatus._t = setTimeout(()=> el.textContent = 'listo', 1400);
+  }
+
+  function drawArrow(x1,y1,x2,y2){
+    const headlen = Math.max(10, width*3);
+    const angle = Math.atan2(y2-y1, x2-x1);
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2 - headlen*Math.cos(angle-Math.PI/6), y2 - headlen*Math.sin(angle-Math.PI/6));
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2 - headlen*Math.cos(angle+Math.PI/6), y2 - headlen*Math.sin(angle+Math.PI/6));
+    ctx.stroke();
+  }
+
+  function applyStrokeStyle(){
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }
+
+  function onDown(e){
+    e.preventDefault();
+    const pos = getPos(e);
+
+    if(tool === 'text'){
+      pendingTextPos = pos;
+      openTextModal();
+      return;
+    }
+
+    drawing = true;
+    startX = pos.x; startY = pos.y;
+    applyStrokeStyle();
+
+    if(tool === 'pen' || tool === 'eraser'){
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      if(tool === 'eraser'){
+        ctx.strokeStyle = '#f6f3ea';
+        ctx.lineWidth = Math.max(width*3, 10);
+      }
+    } else {
+      snapshot = ctx.getImageData(0,0,canvas.width,canvas.height);
+    }
+  }
+
+  function onMove(e){
+    if(!drawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+
+    if(tool === 'pen' || tool === 'eraser'){
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      return;
+    }
+
+    ctx.putImageData(snapshot, 0, 0);
+    applyStrokeStyle();
+
+    if(tool === 'line'){
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    } else if(tool === 'rect'){
+      ctx.strokeRect(startX, startY, pos.x-startX, pos.y-startY);
+    } else if(tool === 'circle'){
+      const rx = Math.abs(pos.x-startX)/2, ry = Math.abs(pos.y-startY)/2;
+      const cx = (pos.x+startX)/2, cy = (pos.y+startY)/2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+      ctx.stroke();
+    } else if(tool === 'arrow'){
+      drawArrow(startX, startY, pos.x, pos.y);
+    }
+  }
+
+  function onUp(e){
+    if(!drawing) return;
+    drawing = false;
+    pushHistory();
+  }
+
+  canvas.addEventListener('mousedown', onDown);
+  canvas.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  canvas.addEventListener('touchstart', onDown, {passive:false});
+  canvas.addEventListener('touchmove', onMove, {passive:false});
+  canvas.addEventListener('touchend', onUp);
+  document.addEventListener('gesturestart', (e)=> e.preventDefault());
+
+  document.querySelectorAll('[data-tool]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('[data-tool]').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      tool = btn.dataset.tool;
+      canvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+      setStatus('herramienta: ' + tool);
+      if(isMobile()) btn.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+    });
+  });
+
+  document.getElementById('colorPicker').addEventListener('input', (e)=>{ color = e.target.value; });
+  document.getElementById('strokeWidth').addEventListener('input', (e)=>{
+    width = parseInt(e.target.value,10);
+    document.getElementById('strokeVal').textContent = width;
+  });
+
+  document.getElementById('gridToggle').addEventListener('change', (e)=>{
+    showGrid = e.target.checked;
+    const current = ctx.getImageData(0,0,canvas.width,canvas.height);
+    drawGrid();
+    ctx.putImageData(current,0,0);
+  });
+
+  document.getElementById('undoBtn').addEventListener('click', ()=>{
+    if(historyIndex > 0) restoreHistory(historyIndex-1);
+    setStatus('deshecho');
+  });
+  document.getElementById('redoBtn').addEventListener('click', ()=>{
+    if(historyIndex < history.length-1) restoreHistory(historyIndex+1);
+    setStatus('rehecho');
+  });
+  document.getElementById('clearBtn').addEventListener('click', ()=>{
+    if(!confirm('¿Borrar todo el croquis?')) return;
+    drawGrid();
+    pushHistory();
+    setStatus('borrado');
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.shiftKey){
+      e.preventDefault();
+      if(historyIndex > 0) restoreHistory(historyIndex-1);
+    }
+    if((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='y' || (e.key.toLowerCase()==='z' && e.shiftKey))){
+      e.preventDefault();
+      if(historyIndex < history.length-1) restoreHistory(historyIndex+1);
+    }
+  });
+
+  const textModal = document.getElementById('textModal');
+  const textInput = document.getElementById('textInput');
+
+  function openTextModal(){
+    textModal.classList.remove('hidden');
+    textModal.classList.add('flex');
+    textInput.value = '';
+    setTimeout(()=>textInput.focus(), 50);
+  }
+  function closeTextModal(){
+    textModal.classList.add('hidden');
+    textModal.classList.remove('flex');
+  }
+  document.getElementById('textCancel').addEventListener('click', closeTextModal);
+  document.getElementById('textConfirm').addEventListener('click', confirmText);
+  textInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') confirmText(); });
+
+  function confirmText(){
+    const value = textInput.value.trim();
+    if(value && pendingTextPos){
+      applyStrokeStyle();
+      ctx.font = `${Math.max(14, width*6)}px 'JetBrains Mono', monospace`;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(value, pendingTextPos.x, pendingTextPos.y);
+      pushHistory();
+    }
+    pendingTextPos = null;
+    closeTextModal();
+  }
+
+  document.getElementById('downloadBtn').addEventListener('click', ()=>{
+    const link = document.createElement('a');
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    link.download = `croquis-${ts}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    setStatus('descargado ✓');
+  });
+
+  let resizeTimer;
+  window.addEventListener('resize', ()=>{
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(()=> applySize(true), 150);
+  });
+  window.addEventListener('orientationchange', ()=>{
+    setTimeout(()=> applySize(true), 250);
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>
